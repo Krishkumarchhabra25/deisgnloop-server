@@ -8,6 +8,7 @@ import {
 } from "./user.controller";
 import { authMiddleware } from "../../middlewares/authMiddleware"; 
 import { designNicheRules, personalInfoRules, validateRequest } from "./user.validator";
+import { handleMulterError, uploadProfilePhoto } from "../../middlewares/upload-middleware";
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.get("/status", checkSetupStatusController);
 
 router.get("/profile", getUserProfileController);
 
-router.post("/personal-info",personalInfoRules, validateRequest, updatePersonalInfoController);
+router.post("/personal-info", uploadProfilePhoto, personalInfoRules , handleMulterError, validateRequest, updatePersonalInfoController);
 
 router.post("/design-niche",designNicheRules, validateRequest, updateDesignNicheController);
 

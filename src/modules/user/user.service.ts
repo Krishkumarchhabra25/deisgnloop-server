@@ -1,4 +1,6 @@
+import { deleteFromS3 } from "../../lib/aws/s3-operations";
 import UserModels from "../../models/UserModels";
+import { extractS3KeyFromUrl, isValidS3Url } from "../../utils/urlGenerator";
 
 interface PersonalInfoData {
   name: string;
@@ -43,7 +45,20 @@ export const updatePersonalInfo = async (
     throw new Error("User not found");
   }
 
-  // Update personal info fields
+  if (data.profilePhoto && user.profilePhoto && user.profilePhoto !== data.profilePhoto) {
+    if (isValidS3Url(user.profilePhoto)) {
+      const oldPhotoKey = extractS3KeyFromUrl(user.profilePhoto);
+      if (oldPhotoKey) {
+        try {
+          await deleteFromS3(oldPhotoKey);
+          console.log(`Deleted old profile photo: ${oldPhotoKey}`);
+        } catch (error) {
+          console.error("Error deleting old profile photo:", error);
+        }
+      }
+    }
+  }
+
   user.name = data.name;
   user.bioTagline = data.bioTagline;
   user.gender = data.gender;
@@ -53,17 +68,24 @@ export const updatePersonalInfo = async (
     user.profilePhoto = data.profilePhoto;
   }
 
-  // Update setup progress
   user.accountSetupStep = Math.max(user.accountSetupStep, 1);
 
   await user.save();
 
   return {
-    user,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      profilePhoto: user.profilePhoto,
+      bioTagline: user.bioTagline,
+      gender: user.gender,
+      dob: user.dob,
+    },
     accountSetupStep: user.accountSetupStep,
   };
-}
-
+};
 export const updateDesignNiche = async (
   userId: string,
   data: DesignNicheData
