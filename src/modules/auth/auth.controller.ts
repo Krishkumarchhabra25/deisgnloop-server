@@ -13,10 +13,16 @@ export const firebaseLoginController = async (req: Request, res: Response) => {
       return sendError(res, "Missing idToken or provider", 400);
     }
 
-    const { User, token } = await handleFirebaseLogin(idToken);
-    console.log("handleFirebaseLogin returned:", { User, token });
+    // ✅ Correct destructuring
+    const { user, token, isNewUser } = await handleFirebaseLogin(idToken);
+    console.log("handleFirebaseLogin returned:", { user, token, isNewUser });
 
-    return sendSuccess(res, "Login Successful", { User, token });
+
+return sendSuccess(res, "Login Successful", { 
+  User: user,    
+  token,
+  isNewUser
+});
   } catch (error) {
     console.error("firebaseLoginController error:", error);
     return sendError(res, "Firebase Login Failed", 500, error);

@@ -25,7 +25,6 @@ export const checkSetupStatusController = async (req: Request, res: Response) =>
   }
 };
 
-// updatePersonalInfoController (drop-in replacement)
 export const updatePersonalInfoController = async (req: Request, res: Response) => {
   console.info("=== updatePersonalInfoController invoked ===");
   try {
@@ -41,7 +40,6 @@ export const updatePersonalInfoController = async (req: Request, res: Response) 
 
     const { name, bioTagline, gender, dob } = req.body;
 
-    // Keep the same required fields check (but validators should catch this)
     if (!name || !bioTagline || !gender || !dob) {
       console.error("Missing required fields:", { name, bioTagline, gender, dob });
       return sendError(res, "Missing required fields", 400, { missing: { name: !name, bioTagline: !bioTagline, gender: !gender, dob: !dob }});
@@ -54,7 +52,7 @@ export const updatePersonalInfoController = async (req: Request, res: Response) 
         const fileName = generateUniqueFileName(req.file.originalname);
         const contentType = getContentType(req.file.mimetype);
 
-        console.info("Calling uploadToS3 with fileName:", fileName, "contentType:", contentType);
+        console.info("Cal`ling uploadToS3 with fileName:", fileName, "contentType:", contentType);
         const uploadResult = await uploadToS3({
           file: req.file.buffer,
           fileName,

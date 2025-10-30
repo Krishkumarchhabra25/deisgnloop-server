@@ -3,13 +3,8 @@ import UserModels from "../../models/UserModels";
 import { generateToken } from "../../utils/token";
 
 export const handleFirebaseLogin = async (idToken: string) => {
-  console.log("handleFirebaseLogin called with idToken:", idToken);
-
   const decoded = await admin.auth().verifyIdToken(idToken);
-  console.log("Decoded Firebase token:", decoded);
-
   const { email, name, picture, uid, firebase } = decoded;
-  console.log("Extracted email, name, uid, firebase:", email, name, uid, firebase);
 
   if (!email) throw new Error("Email not found in Firebase token");
 
@@ -20,19 +15,17 @@ export const handleFirebaseLogin = async (idToken: string) => {
       ? "google"
       : "local";
 
-  console.log("Determined provider:", provider);
+  let user = await UserModels.findOne({ email });
 
-  let User = await UserModels.findOne({ email });
-  console.log("Found existing user:", User);
+  let isNewUser = false;
 
-  if (!User) {
+  if (!user) {
+    isNewUser = true;
     const baseUsername = name?.toLowerCase().replace(/\s+/g, "") || "user";
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const username = `${baseUsername}${randomSuffix}`;
 
-    console.log("Creating new user with username:", username);
-
-    User = await UserModels.create({
+    user = await UserModels.create({
       name,
       email,
       username,
@@ -40,13 +33,25 @@ export const handleFirebaseLogin = async (idToken: string) => {
       provider,
       firebaseUid: uid,
       password: "",
+      // New users start with incomplete setup
+      isAccountSetupComplete: false,
+      accountSetupStep: 0,
     });
-
-    console.log("New user created:", User);
   }
 
-  const token = generateToken(User._id.toString());
-  console.log("Generated JWT token for user:", token);
+  const token = generateToken(user._id.toString());
 
-  return { User, token };
+  return {
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      profilePhoto: user.profilePhoto,
+      isAccountSetupComplete: user.isAccountSetupComplete,
+      accountSetupStep: user.accountSetupStep,
+    },
+    token,
+    isNewUser, // Frontend can use this to decide flow
+  };
 };
