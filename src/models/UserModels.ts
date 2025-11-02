@@ -3,6 +3,7 @@ import { SocialLinksSchema } from "../Schemas/SocialLinksSchema";
 import { PortfolioLinksSchema } from "../Schemas/PortfolioLinksSchema";
 import { ExperienceSchema } from "../Schemas/ExperienceSchema";
 import { ProjectSchema } from "../Schemas/ProjectSchema";
+import { EducationSchema } from "../Schemas/EducationSchema";
 
 
 const UserSchema = new mongoose.Schema(
@@ -27,6 +28,7 @@ const UserSchema = new mongoose.Schema(
 
     designNicheTags: [{ type: String }],
     experience: [ExperienceSchema],
+    education: [EducationSchema],
     projects: [ProjectSchema],
 
     totalProfileViews: { type: Number, default: 0 },
