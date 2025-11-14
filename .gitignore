@@ -38,9 +38,3 @@ aws-credentials.json
 *.ke*
 
 
-# Custom ignore
-src/lib/aws/
-src/utils/token.ts
-src/utils/fileValidator.ts
-src/utils/responseHandler.ts
-src/utils/urlGenerator.ts

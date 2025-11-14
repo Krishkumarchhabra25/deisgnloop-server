@@ -1,5 +1,5 @@
 // src/modules/user/user.validator.ts
-import { body, ValidationChain, validationResult } from "express-validator";
+import { body, ValidationChain, validationResult ,query , param } from "express-validator";
 import { Request, Response, NextFunction } from "express";
 import { sendError } from "../../utils/responseHandler";
 
@@ -407,6 +407,33 @@ export const updateEducationRules: ValidationChain[] = [
     .withMessage("Summary must be between 10 and 500 characters")
     .trim(),
 ];
+
+// Validate userId parameter
+export const userIdParamRules: ValidationChain[] = [
+  param("userId")
+    .exists()
+    .withMessage("User ID is required")
+    .isMongoId()
+    .withMessage("Invalid user ID format"),
+];
+
+// Validate pagination and search query params
+export const paginationRules: ValidationChain[] = [
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Page must be a positive integer"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be between 1 and 100"),
+  query("search")
+    .optional()
+    .isString()
+    .withMessage("Search must be a string")
+    .trim(),
+];
+
 
 
 /**

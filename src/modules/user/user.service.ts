@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import { deleteFromS3 } from "../../lib/aws/s3-operations";
+import FollowModel from "../../models/FollowModel";
 import UserModels from "../../models/UserModels";
 import { extractS3KeyFromUrl, isValidS3Url } from "../../utils/urlGenerator";
 
@@ -479,3 +481,293 @@ export const getUserEducation = async (userId: string) => {
     },
   };
 };
+
+
+//Followers and following Services
+
+// Follow a user
+export const followUser = async (followerId: string, followingId: string) => {
+  // Prevent self-following
+  if (followerId === followingId) {
+    throw new Error("You cannot follow yourself");
+  }
+
+  // Check if both users exist
+  const [follower, following] = await Promise.all([
+    UserModels.findById(followerId),
+    UserModels.findById(followingId),
+  ]);
+
+  if (!follower) {
+    throw new Error("Follower user not found");
+  }
+
+  if (!following) {
+    throw new Error("User to follow not found");
+  }
+
+  // Check if already following
+  const existingFollow = await FollowModel.findOne({
+    follower: followerId,
+    following: followingId,
+  });
+
+  if (existingFollow) {
+    throw new Error("You are already following this user");
+  }
+
+  // Use a session for atomic operations
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Create follow relationship
+    await FollowModel.create(
+      [
+        {
+          follower: followerId,
+          following: followingId,
+        },
+      ],
+      { session }
+    );
+
+    // Update counts atomically
+    await Promise.all([
+      UserModels.findByIdAndUpdate(
+        followerId,
+        { $inc: { followingCount: 1 } },
+        { session }
+      ),
+      UserModels.findByIdAndUpdate(
+        followingId,
+        { $inc: { followerCount: 1 } },
+        { session }
+      ),
+    ]);
+
+    await session.commitTransaction();
+
+    // Get updated user data
+    const updatedFollowing = await UserModels.findById(followingId).select(
+      "name username profilePhoto bioTagline followerCount followingCount"
+    );
+
+    return {
+      success: true,
+      message: "Successfully followed user",
+      user: updatedFollowing,
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+// Unfollow a user
+export const unfollowUser = async (followerId: string, followingId: string) => {
+  // Prevent self-unfollowing
+  if (followerId === followingId) {
+    throw new Error("Invalid operation");
+  }
+
+  // Check if follow relationship exists
+  const followRelation = await FollowModel.findOne({
+    follower: followerId,
+    following: followingId,
+  });
+
+  if (!followRelation) {
+    throw new Error("You are not following this user");
+  }
+
+  // Use a session for atomic operations
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Delete follow relationship
+    await FollowModel.findByIdAndDelete(followRelation._id, { session });
+
+    // Update counts atomically
+    await Promise.all([
+      UserModels.findByIdAndUpdate(
+        followerId,
+        { $inc: { followingCount: -1 } },
+        { session }
+      ),
+      UserModels.findByIdAndUpdate(
+        followingId,
+        { $inc: { followerCount: -1 } },
+        { session }
+      ),
+    ]);
+
+    await session.commitTransaction();
+
+    // Get updated user data
+    const updatedFollowing = await UserModels.findById(followingId).select(
+      "name username profilePhoto bioTagline followerCount followingCount"
+    );
+
+    return {
+      success: true,
+      message: "Successfully unfollowed user",
+      user: updatedFollowing,
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+export const getFollowers = async(userId: string , page:string , limit: number = 20 , searchQuery?:string)=>{
+  const  user = await UserModels.findById(userId);
+  if(!user){
+    throw new Error("User not found");
+  }
+
+  const pageNumber = Number(page);
+  const skip = (pageNumber - 1) * limit;
+
+  let userFilter = {};
+
+  if(searchQuery && searchQuery.trim()){
+    userFilter = {
+      $or: [
+        {name: {$regex: searchQuery , $options: "i"}},
+        {username: {$regex: searchQuery , $options: "i"}},
+        {bioTagline: {$regex: searchQuery , $options: "i"}},
+      ]
+    }
+  }
+
+    const followQuery = { following: userId };
+
+    const [followers , totalCount]= await Promise.all([
+      FollowModel.find(followQuery)
+        .populate({
+            path: "follower",
+            select:"name username profilePhoto bioTagline followerCount followingCount",
+            match: Object.keys(userFilter).length ? userFilter : undefined
+        })
+       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    searchQuery && searchQuery.trim() ? 
+       FollowModel.find(followQuery)
+        .populate({
+          path: "follower",
+          select: "_id",
+          match:userFilter
+        })
+          .then((results) => results.filter((r) => r.follower).length)
+      : FollowModel.countDocuments(followQuery),
+    ])
+
+    const filteredFollowers = followers
+    .filter((f) => f.follower)
+    .map((f) => f.follower);
+
+    return {
+    followers: filteredFollowers,
+    pagination: {
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+      totalCount,
+      hasMore: skip + filteredFollowers.length < totalCount,
+    },
+  };
+
+}
+
+export const getFollowing = async(userId:string , page:string , limit:number = 20 , searchQuery?:string)=>{
+  const user = await UserModels.findById(userId);
+
+  if(!user){
+    throw new Error("User not found");
+  }
+
+   const pageNumber = Number(page);
+  const skip = (pageNumber - 1) * limit;
+
+  let userFilter = {};
+
+  if(searchQuery && searchQuery.trim()){
+    userFilter = {
+      $or: [
+        { name: { $regex: searchQuery, $options: "i" } },
+        { username: { $regex: searchQuery, $options: "i" } },
+        { bioTagline: { $regex: searchQuery, $options: "i" } },
+      ]
+    };
+  };
+
+  const followQuery = {follower:userId};
+
+  const [following , totalCount] = await Promise.all([
+    FollowModel.find(followQuery)
+      .populate({
+        path: "following",
+        select: "name username profilePhoto bioTagline followerCount followingCount",
+        match: Object.keys(userFilter).length > 0 ? userFilter : undefined,
+      })
+       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+      searchQuery && searchQuery.trim()
+      ? FollowModel.find(followQuery)
+          .populate({
+            path: "following",
+            select: "_id",
+            match: userFilter,
+          })
+          .then((results) => results.filter((r) => r.following).length)
+      : FollowModel.countDocuments(followQuery),
+  ]);
+   const filteredFollowing = following
+    .filter((f) => f.following)
+    .map((f) => f.following);
+
+      return {
+    following: filteredFollowing,
+    pagination: {
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+      totalCount,
+      hasMore: skip + filteredFollowing.length < totalCount,
+    },
+  };
+}
+
+export const checkFollowStatus = async (
+  currentUserId: string,
+  targetUserId: string
+) => {
+  const followRelation = await FollowModel.findOne({
+    follower: currentUserId,
+    following: targetUserId,
+  }).lean();
+
+  return {
+    isFollowing: !!followRelation,
+  };
+};
+
+export const getFollowStats = async(userId: string) => {
+  const user = await UserModels.findById(userId);
+
+  if(!user){
+    throw new Error("User not found");
+  }
+
+  return {
+    followerCount: user.followerCount || 0,
+    followingCount: user.followingCount || 0,
+  }
+}

@@ -14,9 +14,15 @@ import {
   getExperienceController,
   getEducationController,
   addExperienceController,
+  getFollowersController,
+  getFollowingController,
+  checkFollowStatusController,
+  getFollowStatsController,
+  followUserController,
+  unfollowUserController
 } from "./user.controller";
 import { authMiddleware } from "../../middlewares/authMiddleware"; 
-import { addEducationRules, addExperienceRules, designNicheRules, editProfileRules, personalInfoRules, updateEducationRules, updateExperienceRules, validateRequest } from "./user.validator";
+import { addEducationRules, addExperienceRules, designNicheRules, editProfileRules, paginationRules, personalInfoRules, updateEducationRules, updateExperienceRules, userIdParamRules, validateRequest } from "./user.validator";
 import { handleMulterError, uploadProfilePhoto } from "../../middlewares/upload-middleware";
 
 const router = express.Router();
@@ -90,5 +96,49 @@ router.put(
 router.delete(
   "/delete-education/:educationId",
   deleteEducationController
+);
+
+router.post(
+  "/follow/:userId",
+  userIdParamRules,
+  validateRequest,
+  followUserController
+);
+
+router.post(
+  "/unfollow/:userId",
+  userIdParamRules,
+  validateRequest,
+  unfollowUserController
+);
+
+router.get(
+  "/:userId/followers",
+  userIdParamRules,
+  paginationRules,
+  validateRequest,
+  getFollowersController
+);
+
+router.get(
+  "/:userId/following",
+  userIdParamRules,
+  paginationRules,
+  validateRequest,
+  getFollowingController
+);
+
+router.get(
+  "/:userId/follow-status",
+  userIdParamRules,
+  validateRequest,
+  checkFollowStatusController
+);
+
+router.get(
+  "/:userId/follow-stats",
+  userIdParamRules,
+  validateRequest,
+  getFollowStatsController
 );
 export default router;

@@ -15,6 +15,12 @@ import {
   deleteEducation,
   getUserEducation,
   getUserExperience,
+  getFollowers,
+  checkFollowStatus,
+  getFollowStats,
+  getFollowing,
+  unfollowUser,
+  followUser,
 } from "./user.service";
 import { generateUniqueFileName } from "../../utils/urlGenerator";
 import { getContentType } from "../../utils/fileValidator";
@@ -447,5 +453,125 @@ export const getEducationController = async (req: Request, res: Response) => {
     return sendSuccess(res, "Education data retrieved successfully", result);
   } catch (error: any) {
     return sendError(res, error.message || "Failed to get education data", 500, error);
+  }
+};
+
+
+// Follow a user
+export const followUserController = async (req: Request, res: Response) => {
+  console.info("=== followUserController invoked ===");
+  try {
+    const followerId = req.user?.id;
+    const { userId } = req.params; // ID of user to follow
+
+    if (!followerId) {
+      console.error("Unauthorized: no userId on req.user");
+      return sendError(res, "Unauthorized", 401, { reason: "missing_user" });
+    }
+
+    console.info("Follower ID:", followerId, "Following ID:", userId);
+
+    const result = await followUser(followerId, userId);
+    
+    console.info("Follow result:", result);
+
+    return sendSuccess(res, result.message, {
+      success: result.success,
+      user: result.user,
+    });
+  } catch (error: any) {
+    console.error("Error in followUserController:", error);
+    const details = { message: error?.message ?? String(error) };
+    return sendError(res, error.message || "Failed to follow user", 500, details);
+  }
+};
+
+// Unfollow a user
+export const unfollowUserController = async (req: Request, res: Response) => {
+  console.info("=== unfollowUserController invoked ===");
+  try {
+    const followerId = req.user?.id;
+    const { userId } = req.params; // ID of user to unfollow
+
+    if (!followerId) {
+      console.error("Unauthorized: no userId on req.user");
+      return sendError(res, "Unauthorized", 401, { reason: "missing_user" });
+    }
+
+    console.info("Follower ID:", followerId, "Unfollowing ID:", userId);
+
+    const result = await unfollowUser(followerId, userId);
+    
+    console.info("Unfollow result:", result);
+
+    return sendSuccess(res, result.message, {
+      success: result.success,
+      user: result.user,
+    });
+  } catch (error: any) {
+    console.error("Error in unfollowUserController:", error);
+    const details = { message: error?.message ?? String(error) };
+    return sendError(res, error.message || "Failed to unfollow user", 500, details);
+  }
+};
+
+export const getFollowersController = async (req: Request , res:Response)=>{
+  try {
+     const userId = req.user?.id;
+       if (!userId) {
+      return sendError(res, "Unauthorized" , 401)
+    } 
+    const page = (req.query.page as string) || "1";
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+
+    const result = await getFollowers(userId , page, limit , search);
+      return sendSuccess(res, "Followers retrieved successfully", result);
+  } catch (error:any) {
+    return sendError(res, error.message || "Failed to get following", 500, error);
+  }
+}
+
+export const getFollowingController = async(req:Request , res:Response)=> {
+   try {
+     const userId = req.user?.id;
+       if (!userId) {
+      return sendError(res, "Unauthorized" , 401)
+    } 
+    const page = (req.query.page as string) || "1";
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+
+    const result = await getFollowing(userId , page, limit , search);
+      return sendSuccess(res, "following retrieved successfully", result);
+   } catch (error:any) {
+    return sendError(res, error.message || "Failed to get following", 500, error);
+   }
+}
+
+export const checkFollowStatusController = async (req: Request, res: Response) => {
+  try {
+    const currentUserId = req.user?.id;
+    const { userId } = req.params;
+
+    if (!currentUserId) {
+      return sendError(res, "Unauthorized", 401);
+    }
+
+    const result = await checkFollowStatus(currentUserId, userId);
+    return sendSuccess(res, "Follow status retrieved", result);
+  } catch (error: any) {
+    return sendError(res, error.message || "Failed to check follow status", 500, error);
+  }
+};
+
+export const getFollowStatsController = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const result = await getFollowStats(userId);
+    return sendSuccess(res, "Follow stats retrieved", result);
+  } catch (error: any) {
+    return sendError(res, error.message || "Failed to get follow stats", 500, error);
   }
 };
