@@ -32,9 +32,7 @@ Thumbs.db
 .idea/
 *.swp
 
-# AWS / Cloud keys or credentials (important!)
+# AWS / Cloud keys or credentials
 aws-credentials.json
 *.pem
-*.ke*
-
-
+*.key
