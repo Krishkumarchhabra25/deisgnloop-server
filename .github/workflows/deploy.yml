@@ -3,7 +3,7 @@ name: Deploy to EC2
 on:
   push:
     branches: [main]
-  workflow_dispatch: # manual trigger
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,23 +18,35 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20.13.1"
-          cache: "npm"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build TypeScript
-        run: npm run build
+        run: pnpm build
 
-      - name: Create deployment package (without node_modules)
+      - name: Create deployment package
         run: |
           mkdir -p deploy
           cp -r dist deploy/
           cp -r src deploy/
-          cp package*.json deploy/
+          cp package.json deploy/
+          cp pnpm-lock.yaml deploy/
           cp ecosystem.config.cjs deploy/
-          # Copy .env.example if exists
-          [ -f .env.example ] && cp .env.example deploy/ || echo "No .env.example found"
+          [ -f .env.example ] && cp .env.example deploy/
           tar -czf deploy.tar.gz -C deploy .
 
       - name: Upload build artifact
@@ -61,100 +73,73 @@ jobs:
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          # Create SSH key file
           echo "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
 
-          # Copy deployment package to EC2
+          # Send package to EC2
           scp -i private_key.pem -o StrictHostKeyChecking=no \
             deploy.tar.gz ${EC2_USERNAME}@${EC2_HOST}:/tmp/
 
-          # SSH into EC2 and deploy
+          # Deploy on EC2
           ssh -i private_key.pem -o StrictHostKeyChecking=no \
             ${EC2_USERNAME}@${EC2_HOST} << 'EOF'
-            
-            # Navigate to app directory
+
             cd /var/www/designloop
 
-            # Fix ownership first (important!)
-            echo "Fixing directory ownership..."
             sudo chown -R $USER:$USER /var/www/designloop
-            
-            
-            # Backup current version
+
+            # Backup current build
             if [ -d "dist" ]; then
-              timestamp=$(date +%Y%m%d_%H%M%S)
               mkdir -p backups
+              timestamp=$(date +%Y%m%d_%H%M%S)
               tar -czf backups/backup_${timestamp}.tar.gz dist package.json ecosystem.config.cjs .env 2>/dev/null || true
-              # Keep only last 5 backups
-              ls -t backups/backup_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm
+              ls -t backups/backup_*.tar.gz | tail -n +6 | xargs -r rm
             fi
-            
-            # Extract new version (this will overwrite existing files)
-            echo "Extracting new deployment package..."
+
+            # Extract new build
             tar --overwrite -xzf /tmp/deploy.tar.gz -C /var/www/designloop
             rm /tmp/deploy.tar.gz
 
-            # Fix ownership after extraction
             sudo chown -R $USER:$USER /var/www/designloop
-            
-            
-            # Install production dependencies on the server
-            echo ""
-            echo "Installing production dependencies..."
-            npm ci
-            
-            # Create .env file if needed (only on first deploy)
-            if [ ! -f .env ]; then
-              echo "Creating default .env file..."
-              echo "NODE_ENV=production" > .env
-              echo "PORT=8000" >> .env
+
+            # Install pnpm if missing
+            if ! command -v pnpm &> /dev/null; then
+              npm install -g pnpm
             fi
-            
+
+            echo "Installing production dependencies..."
+            pnpm install --prod --frozen-lockfile
+
             # Create logs directory
             mkdir -p logs
-            
-            # Zero-downtime reload with PM2
+
+            # PM2 start/reload
             if pm2 describe designloop > /dev/null 2>&1; then
-              echo "Reloading PM2 app (zero-downtime)..."
-              sudo pm2 reload ecosystem.config.cjs --update-env
+              pm2 reload ecosystem.config.cjs --update-env
             else
-              echo "Starting new PM2 process..."
-              sudo pm2 start ecosystem.config.cjs
+              pm2 start ecosystem.config.cjs
             fi
-            
-            # Save PM2 process list
-            sudo pm2 save
-           
+
+            pm2 save
           EOF
 
-          # Cleanup
           rm private_key.pem
 
       - name: Verify deployment
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "Waiting for application to start..."
+          echo "Waiting for app…"
           sleep 10
+          
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_HOST} || echo "000")
 
-          # Check if app responds via nginx (try multiple times)
-          for i in {1..2}; do
-            echo "Attempt $i of 2..."
-            response=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_HOST} 2>/dev/null || echo "000")
-            
-            if [ "$response" = "200" ] || [ "$response" = "301" ] || [ "$response" = "302" ]; then
-              echo "✅ Deployment successful! App is responding with status: $response"
-              exit 0
-            fi
-            
-            echo "Got response: $response, waiting 5 seconds..."
-            sleep 5
-          done
-
-          echo "❌ Deployment verification failed after 2 attempts"
-          echo "Please check PM2 logs on the server"
-          exit 1
+          if [ "$response" = "200" ] || [ "$response" = "301" ] || [ "$response" = "302" ]; then
+            echo "✅ Deployment successful (status: $response)"
+          else
+            echo "❌ Deployment failed (status: $response)"
+            exit 1
+          fi
 
       - name: Rollback on failure
         if: failure()
@@ -163,30 +148,24 @@ jobs:
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          echo "🔄 Attempting to rollback to previous version..."
-
           echo "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
 
           ssh -i private_key.pem -o StrictHostKeyChecking=no \
             ${EC2_USERNAME}@${EC2_HOST} << 'EOF'
-            
-            cd /var/www/designloop
 
-            # Fix ownership first (important!)
+            cd /var/www/designloop
             sudo chown -R $USER:$USER /var/www/designloop
-            
-            # Find latest backup
-            latest_backup=$(ls -t backups/backup_*.tar.gz 2>/dev/null | head -1)
-            
+
+            latest_backup=$(ls -t backups/backup_*.tar.gz | head -1)
+
             if [ -n "$latest_backup" ]; then
-              echo "Found backup: $latest_backup"
+              echo "Rolling back to $latest_backup"
               tar -xzf "$latest_backup" -C /var/www/designloop
-              npm ci
+              pnpm install --prod --frozen-lockfile
               pm2 reload ecosystem.config.cjs
-              echo "✅ Rolled back to previous version"
             else
-              echo "⚠️ No backup found, cannot rollback"
+              echo "⚠️ No backups found, rollback not possible"
             fi
           EOF
 
